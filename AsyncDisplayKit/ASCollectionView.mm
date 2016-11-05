@@ -381,7 +381,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
     _asyncDataSource = asyncDataSource;
     _proxyDataSource = [[ASCollectionViewProxy alloc] initWithTarget:_asyncDataSource interceptor:self];
     
-    _asyncDataSourceFlags.dataForCollectionNode = [_asyncDelegate respondsToSelector:@selector(dataForCollectionNode:)];
+    _asyncDataSourceFlags.dataForCollectionNode = [_asyncDataSource respondsToSelector:@selector(dataForCollectionNode:)];
     _asyncDataSourceFlags.collectionViewNodeForItem = [_asyncDataSource respondsToSelector:@selector(collectionView:nodeForItemAtIndexPath:)];
     _asyncDataSourceFlags.collectionViewNodeBlockForItem = [_asyncDataSource respondsToSelector:@selector(collectionView:nodeBlockForItemAtIndexPath:)];
     _asyncDataSourceFlags.numberOfSectionsInCollectionView = [_asyncDataSource respondsToSelector:@selector(numberOfSectionsInCollectionView:)];
@@ -406,13 +406,13 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
       ASDisplayNodeAssertFalse([_asyncDataSource respondsToSelector:@selector(collectionView:nodeBlockForItemAtIndexPath:)]);
       ASDisplayNodeAssertFalse([_asyncDataSource respondsToSelector:@selector(collectionNode:nodeForItemAtIndexPath:)]);
       ASDisplayNodeAssertFalse([_asyncDataSource respondsToSelector:@selector(collectionView:nodeForItemAtIndexPath:)]);
+    } else {
+      ASDisplayNodeAssert(_asyncDataSourceFlags.collectionNodeNumberOfItemsInSection || _asyncDataSourceFlags.collectionViewNumberOfItemsInSection, @"Data source must implement collectionNode:numberOfItemsInSection:");
+      ASDisplayNodeAssert(_asyncDataSourceFlags.collectionNodeNodeBlockForItem
+                          || _asyncDataSourceFlags.collectionNodeNodeForItem
+                          || _asyncDataSourceFlags.collectionViewNodeBlockForItem
+                          || _asyncDataSourceFlags.collectionViewNodeForItem, @"Data source must implement collectionNode:nodeBlockForItemAtIndexPath: or collectionNode:nodeForItemAtIndexPath:");
     }
-
-    ASDisplayNodeAssert(_asyncDataSourceFlags.collectionNodeNumberOfItemsInSection || _asyncDataSourceFlags.collectionViewNumberOfItemsInSection, @"Data source must implement collectionNode:numberOfItemsInSection:");
-    ASDisplayNodeAssert(_asyncDataSourceFlags.collectionNodeNodeBlockForItem
-                        || _asyncDataSourceFlags.collectionNodeNodeForItem
-                        || _asyncDataSourceFlags.collectionViewNodeBlockForItem
-                        || _asyncDataSourceFlags.collectionViewNodeForItem, @"Data source must implement collectionNode:nodeBlockForItemAtIndexPath: or collectionNode:nodeForItemAtIndexPath:");
   }
   
   super.dataSource = (id<UICollectionViewDataSource>)_proxyDataSource;
@@ -668,7 +668,9 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   ASDisplayNodeAssertMainThread();
   
   [_dataController beginUpdates];
-  updates();
+  if (updates != nil) {
+  	updates();
+  }
   [_dataController endUpdatesAnimated:animated completion:completion];
 }
 
@@ -1247,7 +1249,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
 // when the initializer for ASCollectionView is made unavailable (currently deprecated.)
 #pragma mark - ASDataControllerSource
 
-- (id<ASCollectionData>)dataForDataController:(ASDataController *)dataController
+- (ASCollectionData *)dataForDataController:(ASDataController *)dataController
 {
   if (_asyncDataSourceFlags.dataForCollectionNode) {
     return [_asyncDataSource dataForCollectionNode:self.collectionNode];
@@ -1297,15 +1299,19 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   // Wrap the node block
   __weak __typeof__(self) weakSelf = self;
   return ^{
-    __typeof__(self) strongSelf = weakSelf;
     ASCellNode *node = (block != nil ? block() : [[ASCellNode alloc] init]);
-    [node enterHierarchyState:ASHierarchyStateRangeManaged];
-    if (node.interactionDelegate == nil) {
-      node.interactionDelegate = strongSelf;
-    }
+    [weakSelf didCreateNode:node];
     return node;
   };
   return block;
+}
+
+- (void)didCreateNode:(ASCellNode *)node
+{
+  [node enterHierarchyState:ASHierarchyStateRangeManaged];
+  if (node.interactionDelegate == nil) {
+    node.interactionDelegate = self;
+  }
 }
 
 - (ASSizeRange)dataController:(ASDataController *)dataController constrainedSizeForNodeAtIndexPath:(NSIndexPath *)indexPath
